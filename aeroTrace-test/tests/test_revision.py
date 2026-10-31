@@ -29,6 +29,8 @@ def test_all_multiversion_dockets_follow_publication_dates():
 
 
 def test_latest_and_explicit_old_version_keep_evidence_in_one_record():
+    if not settings.openrouter_key:
+        pytest.skip("OPENAI_API_KEY is needed for the engine integration test")
     engine = AeroTrace()
     for requested, expected in (("", "NPRM-011"), ("NPRM-121", "NPRM-121")):
         result = engine.ask("What does FAA-2026-1338 propose?", record_id=requested,
@@ -38,6 +40,8 @@ def test_latest_and_explicit_old_version_keep_evidence_in_one_record():
 
 
 def test_conflicting_version_identifiers_refuse():
+    if not settings.openrouter_key:
+        pytest.skip("OPENAI_API_KEY is needed for the engine integration test")
     engine = AeroTrace()
     result = engine.ask("What does FAA-2026-1338 version 2 propose?", record_id="NPRM-121",
                         keyword_only=True, use_llm=False)
