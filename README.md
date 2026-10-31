@@ -12,7 +12,7 @@
 <p align="center">
   <a href="https://aerotrace-x8czefwxnzhxxl9k7s4s3x.streamlit.app/"><b>🚀 Live demo</b></a> ·
   <a href="#how-it-works">How it works</a> ·
-  <a href="#run-it-locally">Run locally</a> ·
+  <a href="#try-the-live-demo">Try it</a> ·
   <a href="#evaluation">Evaluation</a>
 </p>
 
@@ -27,6 +27,30 @@
 > Autonomous SG 2026 · Challenge #4 · AI & Aerospace
 
 ---
+
+## Try the live demo
+
+**👉 [https://aerotrace-x8czefwxnzhxxl9k7s4s3x.streamlit.app/](https://aerotrace-x8czefwxnzhxxl9k7s4s3x.streamlit.app/)**
+
+Nothing to install: open the link in any browser.
+
+1. **Pick a benchmark question** from the buttons, or type your own.
+2. *(Optional)* open **Aircraft details** and enter a model, serial number or part number for an applicability check.
+3. Read the **verified answer**. Every sentence ends with a citation like **[1]**.
+4. Check the **decision record**: docket, version, applicability result and retrieval time.
+5. Scroll to the **evidence appendix** to see each cited passage from the official Federal Register notice, with the supporting text highlighted.
+
+**Questions to try**
+
+| Question | What you should see |
+|---|---|
+| What inspection does FAA-2026-11814 propose? | Verified answer with cited claims |
+| What modification is proposed for the MBB-BK 117 D-2 fuel system? | Answer citing FAA-2026-11812 (see screenshot below) |
+| Does FAA-2026-11814 apply to an EC135P2? | Does not apply: that model isn't listed |
+| Does FAA-2026-11814 apply to my helicopter? | Refusal asking for the aircraft model (`MISSING_CONFIG`) |
+| What is the recipe for chocolate cake? | Refusal: not about this corpus |
+
+A full answer takes about 6–8 seconds, because Claude writes it and every claim is then validated. The first visit can take a little longer while the app wakes up.
 
 ## The problem
 
@@ -121,61 +145,6 @@ flowchart TD
 | `MISSING_CONFIG` | An applicability question needs a model and/or serial number |
 | `NO_VERIFIED_ANSWER` | Claude's claims all failed citation validation |
 
-## Try these
-
-| Question | What you should see |
-|---|---|
-| What inspection does FAA-2026-11814 propose? | Verified answer with cited claims |
-| What modification is proposed for the MBB-BK 117 D-2 fuel system? | Answer citing FAA-2026-11812 (screenshot above) |
-| Does FAA-2026-11814 apply to an EC135P2? | `DOES_NOT_APPLY`: model isn't listed |
-| Does FAA-2026-11814 apply to my helicopter? | Refusal: `MISSING_CONFIG` |
-| What is the recipe for chocolate cake? | Refusal: out of scope / no evidence |
-
-## Run it locally
-
-The deployed app lives in [`aeroTrace-test/`](aeroTrace-test/).
-
-```bash
-cd aeroTrace-test
-python3 -m venv .venv && source .venv/bin/activate
-pip install -r requirements.txt
-
-cp .env.example .env          # then fill in the two keys below
-streamlit run app.py
-```
-
-| Variable | Required | Purpose |
-|---|---|---|
-| `OPENAI_API_KEY` | yes | **OpenRouter** key (`sk-or-…`), used for query embeddings |
-| `ANTHROPIC_API_KEY` | yes, for answers | Claude synthesis of cited answers |
-| `AEROTRACE_EMBED_MODEL` | no | Default `text-embedding-3-small` (sent to OpenRouter as `openai/text-embedding-3-small`) |
-| `AEROTRACE_LLM_MODEL` | no | Default `claude-sonnet-5-5` |
-| `OPENROUTER_BASE_URL` | no | Default `https://openrouter.ai/api/v1` |
-
-**Rebuild the index** (only needed if the workbook changes; it downloads all notices and re-embeds changed passages):
-
-```bash
-python scripts/build_index.py              # full build, resumable
-python scripts/build_index.py --limit 20   # quick development build
-python scripts/build_index.py --skip-fetch --skip-embed   # re-chunk only
-```
-
-**Ask from the terminal:**
-
-```bash
-python scripts/ask.py "What inspection does FAA-2026-11814 propose?"
-```
-
-## Deploy (Streamlit Community Cloud)
-
-1. At [share.streamlit.io](https://share.streamlit.io) choose **Create app**, select this repository and branch, and set the main file to `aeroTrace-test/app.py`.
-2. In **Advanced settings → Secrets**, add (TOML, with quotes):
-   ```toml
-   OPENAI_API_KEY = "sk-or-v1-..."
-   ANTHROPIC_API_KEY = "sk-ant-..."
-   ```
-3. Deploy. The search index is bundled, so there's no build step on the server.
-
 ## Evaluation
 
 Measured by the team on 31 October 2026 against 431 fetched notices and 5,651 passages ([`eval/results.md`](aeroTrace-test/eval/results.md)):
@@ -188,15 +157,6 @@ Measured by the team on 31 October 2026 against 431 fetched notices and 5,651 pa
 - The evaluation runner keeps target document IDs to itself: the engine sees only the question.
 - In a sample end-to-end query, retrieval took about 1.4 s and Claude synthesis about 6.5 s. Two of Claude's claims were removed by the validator, and three verified claims were shown.
 - The question set (10 dev + 10 held-out) was written during development and is small. It isn't an independent benchmark.
-
-```bash
-cd aeroTrace-test
-pytest -q                                                  # unit tests
-python eval/run_retrieval.py --split heldout --keyword-only
-python eval/run_retrieval.py --split heldout               # hybrid
-```
-
-Two of the tests are engine integration tests and are skipped unless `OPENAI_API_KEY` is set. The evaluation script also needs that key to start, even in `--keyword-only` mode.
 
 ## Repository layout
 
@@ -235,6 +195,56 @@ Python · Streamlit · SQLite FTS5 · NumPy · OpenRouter (`text-embedding-3-sma
 - **Validation isn't proof.** It confirms the passage, the verbatim quote and the exact numbers, but it isn't a full check that the sentence logically follows from the quote.
 - **Speed:** retrieval is under 3 s, but a full answer takes about 6–8 s because of LLM synthesis.
 - **Next:** a larger, independently written evaluation set; final-rule ADs alongside proposals; applicability parsing for part numbers and modification states.
+
+## For developers
+
+<details>
+<summary>Run AeroTrace on your own machine</summary>
+
+The deployed app lives in [`aeroTrace-test/`](aeroTrace-test/).
+
+```bash
+cd aeroTrace-test
+python3 -m venv .venv && source .venv/bin/activate
+pip install -r requirements.txt
+
+cp .env.example .env          # then fill in the two keys below
+streamlit run app.py
+```
+
+| Variable | Required | Purpose |
+|---|---|---|
+| `OPENAI_API_KEY` | yes | **OpenRouter** key (`sk-or-…`), used for query embeddings |
+| `ANTHROPIC_API_KEY` | yes, for answers | Claude synthesis of cited answers |
+| `AEROTRACE_EMBED_MODEL` | no | Default `text-embedding-3-small` (sent to OpenRouter as `openai/text-embedding-3-small`) |
+| `AEROTRACE_LLM_MODEL` | no | Default `claude-sonnet-5-5` |
+| `OPENROUTER_BASE_URL` | no | Default `https://openrouter.ai/api/v1` |
+
+**Rebuild the index** (only needed if the workbook changes; it downloads all notices and re-embeds changed passages):
+
+```bash
+python scripts/build_index.py              # full build, resumable
+python scripts/build_index.py --limit 20   # quick development build
+python scripts/build_index.py --skip-fetch --skip-embed   # re-chunk only
+```
+
+**Ask from the terminal:**
+
+```bash
+python scripts/ask.py "What inspection does FAA-2026-11814 propose?"
+```
+
+**Tests and evaluation**
+
+```bash
+cd aeroTrace-test
+pytest -q                                                  # unit tests
+python eval/run_retrieval.py --split heldout --keyword-only
+python eval/run_retrieval.py --split heldout               # hybrid
+```
+
+Two engine integration tests are skipped unless `OPENAI_API_KEY` is set; the evaluation script also needs that key to start.
+</details>
 
 ## Disclaimer
 
