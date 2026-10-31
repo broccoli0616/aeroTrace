@@ -1,130 +1,273 @@
 # ✈️ AeroTrace
 
-**Traceable, context-aware search over regulated aviation documents.**
+**Traceable, context-aware search over aviation technical documents.**
+
 Autonomous SG 2026 · Challenge #4 · AI & Aerospace track
 
-> *Search with receipts:* every sentence comes with its source, and when the tool isn't sure, it refuses and says why.
+AeroTrace helps engineers find technical passages, check whether a directive applies to an aircraft, and inspect the evidence behind an answer. It combines keyword and optional semantic retrieval with applicability rules, revision tracking, and per-statement citations.
 
-AeroTrace answers questions about FAA Airworthiness Directive proposals (NPRMs). It:
+The bundled corpus contains FAA **Notice of Proposed Rulemaking (NPRM)** records. These are proposals, not final maintenance instructions. AeroTrace is a search and verification aid; users must check the authoritative source before acting.
 
-- returns **only text that exists in the documents**, and cites document, revision, page and paragraph for every sentence
-- **checks applicability with code, not the LLM**, e.g. "applies to serial numbers 0002 through 2519" gives APPLIES for S/N 1200, DOES NOT APPLY for 2600, and UNKNOWN (asks you) when no serial is given
-- **tracks revisions**: shows the version used, whether a newer one exists, and whether the proposal was **withdrawn**
-- **refuses with a reason code** when evidence is missing, conflicting or ambiguous
-- returns **structured JSON** plus a rendered view, in single-digit milliseconds
+## Why this project
+
+An answer about the wrong aircraft, serial range, or revision can be misleading even when it quotes a real document. Challenge #4 asks for a search engine that makes those conditions and its evidence visible, and refuses when information is insufficient.
+
+| Challenge requirement | Current implementation |
+|---|---|
+| Specific source references | Document, revision, passage identifier, and available page/section metadata for each answer statement |
+| Configuration filtering | Model-based retrieval filtering followed by rule evaluation for model, serial range, and supported part-number conditions |
+| Revision awareness | Docket-based revision grouping, supersession references, withdrawal warnings, and conflict handling |
+| Clear uncertainty | Refusal codes, missing-field prompts, and unparsed-rule warnings |
+| Structured results | Streamlit answer view, JSON view, and downloadable per-query audit JSON |
+| Reduce unsupported answers | Original-text extraction by default; optional Claude drafts checked against cited passages |
+| Under 3 seconds over 1,000+ pages | Target to validate with a representative full-text corpus and intended API configuration |
+
+See the [problem statement](docs/problem_statement.png) and [product requirements](docs/PRD.md).
 
 ## Quick start
 
+Run from the repository root. No API key is required for keyword search and extractive answers.
+
 ```bash
-python3 -m venv .venv && source .venv/bin/activate
-pip install -r requirements.txt
-
-streamlit run app.py                                                    # demo UI
-python -m aerotrace.cli "Does the R22 directive apply to serial number 1200?"   # JSON in the terminal
-python eval/run_eval.py                                                 # 38-query evaluation -> eval/results.md
-pytest -q                                                               # unit tests
+python3 -m venv .venv
+source .venv/bin/activate
+python -m pip install -r requirements.txt
+python -m streamlit run app.py
 ```
 
-Optional: `export ANTHROPIC_API_KEY=...` and toggle **"Let Claude write the answer"** in the UI (or pass `--llm` to the CLI).
-Without a key, the tool runs in *extractive* mode: it quotes the best sentences word for word, so it can't hallucinate.
+Open the local URL printed by Streamlit, usually `http://localhost:8501`.
 
-## How it works
+For JSON in the terminal:
 
-```
-question ──► parse configuration (model, serial, part, docket)       aerotrace/engine.py
-         ──► refuse early: ambiguous abbreviation, unknown docket/aircraft
-         ──► applicability filter: only docs whose rule could cover the model   aerotrace/rules.py
-         ──► BM25 retrieval (+ optional vectors, RRF)                 aerotrace/index.py
-         ──► ambiguity check (several different directives match equally)
-         ──► revision logic (withdrawn? newer version? conflicting versions?)   aerotrace/revisions.py
-         ──► deterministic rule evaluation: APPLIES / DOES_NOT_APPLY / UNKNOWN / UNPARSED
-         ──► compose from ONE document only (extractive, or Claude)  aerotrace/compose.py
-         ──► verify each sentence against its cited passage; drop failures       aerotrace/verify.py
-         ──► coverage check: the answer must mention what was asked
-         ──► JSON + rendered view                                     app.py
+```bash
+python -m aerotrace.cli "Does the R22 directive apply to serial number 1200?" --full
 ```
 
-**The LLM never decides facts.** Applicability, revisions, refusals and verification are all plain Python.
-Claude (optional) only rewrites retrieved passages. Any sentence that doesn't match its source (≥85% word overlap,
-**and every number identical**) is removed. If nothing survives, the answer is refused with `VERIFICATION_FAILED`.
+If an existing `.env` enables embeddings, startup uses that configuration. To explicitly run without embedding API calls:
 
-### Refusal reason codes
+```bash
+AEROTRACE_EMBEDDINGS= python -m streamlit run app.py
+```
 
-| Code | When |
+## API configuration
+
+Embedding and answer generation are separate features. An embedding key enables semantic retrieval; it does not enable Claude answer writing.
+
+| Mode | Retrieval | Answer composition | Credentials |
+|---|---|---|---|
+| Default | Local BM25 | Extract source sentences | None |
+| Hybrid retrieval | BM25 + vectors, merged with reciprocal rank fusion (RRF) | Extract source sentences | Embedding provider key, or optional local model |
+| Claude answers | Either retrieval mode | Claude draft followed by verification | Anthropic key; embedding credentials only if also enabled |
+
+Create a `.env` file **beside `app.py`**:
+
+```bash
+cp -n .env.example .env
+```
+
+Edit `.env` in your editor. The app loads it when started from the repository root; existing shell variables take precedence. Lines beginning with `#` are comments. Restart after changing settings.
+
+### OpenRouter embeddings
+
+```dotenv
+OPENAI_API_KEY=replace_with_your_openrouter_key
+AEROTRACE_EMBEDDINGS=openai
+AEROTRACE_EMBED_MODEL=openai/text-embedding-3-small
+OPENAI_BASE_URL=https://openrouter.ai/api/v1
+```
+
+The variable is named `OPENAI_API_KEY` because the code uses an OpenAI-compatible client. Keys beginning with `sk-or-` automatically select the OpenRouter endpoint if `OPENAI_BASE_URL` is unset.
+
+### OpenAI embeddings
+
+Use this configuration instead of the OpenRouter block:
+
+```dotenv
+OPENAI_API_KEY=replace_with_your_openai_key
+AEROTRACE_EMBEDDINGS=openai
+AEROTRACE_EMBED_MODEL=text-embedding-3-small
+OPENAI_BASE_URL=https://api.openai.com/v1
+```
+
+For another compatible provider, supply its base URL and supported model name. The client calls the embeddings endpoint under that base URL; do not use a model's website URL.
+
+At initialization, uncached passage texts are sent to the provider. Vectors are cached per passage in `.cache/`; each subsequent search needing semantic retrieval sends the query text for embedding. These calls can incur provider charges. Startup and query latency depend on the provider and cache state.
+
+Inspect the answer's JSON `retrieval` field. `bm25+openrouter/...` or `bm25+openai/...` indicates a hybrid index initialized; `bm25` indicates keyword-only retrieval. A query embedding can still fail and fall back to BM25 after initialization, so also check terminal logs. This field describes the initialized backend, not per-request health.
+
+### Optional local embeddings
+
+```bash
+python -m pip install sentence-transformers
+AEROTRACE_EMBEDDINGS=1 python -m streamlit run app.py
+```
+
+This selects `all-MiniLM-L6-v2` without an embedding API key. The model may need to download on first use.
+
+### Optional Claude answers
+
+Add a direct Anthropic credential to `.env`:
+
+```dotenv
+ANTHROPIC_API_KEY=replace_with_your_anthropic_key
+```
+
+Enable **Let Claude write the answer** in the sidebar, or pass `--llm` to the CLI. `AEROTRACE_MODEL` overrides the model selected in [compose.py](aerotrace/compose.py). Compatible model access and SDK support are required; offline tests do not validate live Claude calls.
+
+Leave `ANTHROPIC_API_KEY` empty for extractive answers. An OpenRouter key does not configure the direct Anthropic client.
+
+Keep real keys in `.env` or deployment secrets, never in `.env.example`. `.env` is ignored by Git.
+
+## How an answer is produced
+
+```text
+Question + optional model / serial / part number
+    ↓
+Parse configuration; check recognized ambiguous or out-of-scope requests
+    ↓
+Filter candidate documents by explicit references or aircraft model
+    ↓
+BM25 + optional semantic retrieval → RRF passage ranking
+    ↓
+Choose a document; check ambiguity, revisions, and applicability
+    ↓
+Extract original sentences OR ask Claude to draft from its passages
+    ↓
+Check citations, source-text overlap, numbers, and topic coverage
+    ↓
+Answer with evidence OR refusal with a reason code
+```
+
+The composer uses passages from one selected document to limit blending of directives. Applicability evaluation returns `APPLIES`, `DOES_NOT_APPLY`, `UNKNOWN`, or `UNPARSED`. General information questions can receive an answer with an applicability warning; explicit applicability questions require sufficient configuration and a supported rule.
+
+The verifier accepts normalized exact quotes. For paraphrases, it requires at least 85% token overlap and rejects numeric tokens absent from the cited passage. This is a **heuristic check**, not proof of semantic correctness: it cannot detect every negation, wrong relationship, or number assigned to the wrong component.
+
+Hybrid passage retrieval is implemented, but document selection still ranks by BM25 scores. Evidence thresholds and default sentence extraction also remain keyword-based. Embedding-only matches can therefore still be refused. Semantic improvements need end-to-end evaluation.
+
+### Refusal codes
+
+| Code | Meaning |
 |---|---|
-| `NO_EVIDENCE` | Nothing in the corpus supports an answer, or the closest document doesn't mention what was asked |
-| `OUT_OF_SCOPE` | Docket, AD, maker or model not in the corpus (e.g. "777X", "Cirrus") |
-| `CONFLICT` | Two versions of a proposal both match and differ (ask for "latest" to resolve) |
-| `AMBIGUOUS_TERM` | Abbreviation with several meanings ("MR", "TR"), or several directives match equally |
-| `MISSING_CONFIG` | Applicability needs a model / serial / part number you didn't give |
-| `UNPARSED_RULE` | The applicability text has a condition we couldn't parse, so we won't guess |
-| `VERIFICATION_FAILED` | Generated sentences couldn't be traced to the source |
+| `NO_EVIDENCE` | Retrieved text does not adequately support an answer |
+| `OUT_OF_SCOPE` | A recognized document or aircraft reference is absent |
+| `CONFLICT` | Candidate revisions cannot be resolved by current rules |
+| `AMBIGUOUS_TERM` | An abbreviation or competing directives need clarification |
+| `MISSING_CONFIG` | Required aircraft configuration is missing |
+| `UNPARSED_RULE` | Applicability conditions cannot be evaluated reliably |
+| `VERIFICATION_FAILED` | Drafted statements fail source checks |
 
-## Data
+## Upload documents
 
-`data/ad_nprm.tsv`: 431 FAA AD NPRM records (exported from the provided spreadsheet). Findings from profiling it:
+1. Under **📎 Add documents**, select a text PDF, Word `.docx`, Excel `.xlsx`, or `.tsv` file, up to 50 MB.
+2. Review the extracted information. For uploads producing up to five document records, edit title, docket, make, models, and revision as needed; larger uploads show a summary table.
+3. Click **Confirm & add** to save and index the document. With API embeddings enabled, uncached text is embedded at this step.
+4. Ask a question and expand **Show highlighted source passage**. Exact answer strings are highlighted in the extracted text.
 
-| Finding | Impact |
+PDF citations retain page metadata; Word citations use section/body/table locations because Word has no fixed pagination. Spreadsheets use available sheet/row or source-record metadata. The provided FAA layout has a specialized importer; other tables become passages built from column names and values. Scanned-only PDFs are not OCR-processed.
+
+Uploads are labelled **user-provided, not verified against the Federal Register**. Repeated file bytes are detected by hash, and rows matching the existing corpus are checked for duplicates when added.
+
+### Storage
+
+| Data | Location |
 |---|---|
-| 171 rows have the **full proposed-AD regulatory text** in the "Link for Submitting Public Comment" column | Main source for applicability sections, serial ranges and supersession links |
-| **123 rows are withdrawal notices**, 5 revised proposals (SNPRM), 4 OFR corrections (`R1`) | Revision logic groups rows by base docket; withdrawn proposals are flagged |
-| Docket numbers repeat (323 unique) | Document ID = docket + first FR page |
-| `Status` is "Current" for every row; 3 reference columns are empty | Not used |
-| Manufacturer names vary ("Boeing" / "The Boeing Company") | Normalised |
-| Corpus spans 1,341 Federal Register pages (~1.07M characters of text indexed) | |
+| Bundled corpus | `data/ad_nprm.tsv`; optional PDFs in `data/pdfs/` |
+| Confirmed uploads | `data/uploads/<hash-prefix>__<filename>` |
+| Original filename, upload time, review edits | Companion JSON in `data/uploads/` |
+| Parsed documents, passages, BM25 index | Application memory; rebuilt on startup |
+| API embedding vectors | Per-passage cache in `.cache/` |
+| Query audit output | JSON downloadable from the JSON tab |
 
-Rule extraction results: 152 rules fully parsed, 193 partial (model known, but an extra condition such as "certain
-serial numbers per service bulletin" could not be parsed, so these give `UNPARSED_RULE` instead of a guess), 86 unparsed.
+`AEROTRACE_UPLOAD_DIR` overrides the upload folder. Local uploads reload on restart while their files remain on disk. No database service is required.
 
-**Adding more documents:** drop a file in the sidebar under **📎 Add documents**. Accepted: PDF, Word (.docx),
-Excel (.xlsx) and TSV, up to 50 MB; anything else (including renamed files) is rejected with a reason
-(`aerotrace/uploads.py`). The review screen shows the docket, make, models, revision and detected applicability rule;
-correct them, then **Confirm & add**. Only then is the document indexed and embedded (just its own passages; vectors are
-cached per passage). Uploads are saved in `data/uploads/` (gitignored), reloaded on restart, and every citation from
-them is labelled *uploaded, not verified against the Federal Register*. Spreadsheets in the FAA NPRM layout load like
-`ad_nprm.tsv`; other tables become one passage per row. Rows identical to the official corpus are skipped as duplicates.
-Scanned pages without extractable text are flagged rather than OCR-guessed. Set `AEROTRACE_UPLOAD_DIR` to store
-uploads elsewhere. (PDFs placed directly in `data/pdfs/`, named like `2026-21-03_revA.pdf`, are still loaded too.)
+Uploads are shared across users of the same app instance, including removal. Removing an upload deletes its saved file and metadata and removes it from the active index; cached embedding vectors are not currently purged. On a host with ephemeral storage, uploads and caches are not durable across instance replacement.
 
-## Evaluation
+## Corpus and scope
 
-`python eval/run_eval.py`: 38 queries across answerable, applies, does-not-apply, missing config, conflicting
-revisions, out of scope and ambiguous. Current result: **38/38** in extractive mode, median latency < 10 ms.
-See [`eval/results.md`](eval/results.md).
+The supplied spreadsheet is exported as [data/ad_nprm.tsv](data/ad_nprm.tsv), containing 431 records. The base engine previously loaded 2,199 citable passages; uploads change that total. Records include summaries, available regulatory text, source links, and revision-related notices. This is not a complete collection of maintenance manuals or accident reports.
 
-Honest caveats:
-- The eval set was written by the team while building the system, so it is not a blind test. Add your own queries.
-- `python eval/bench_latency.py 20` replicates the corpus 20× (~44k passages): median 7 ms, max 26 ms.
-- Model matching is conservative: "A330" will not be assumed to cover "A330-243" unless the rule lists the A330 series.
+The earlier corpus profile reports references spanning 1,341 Federal Register pages. That is **not evidence that 1,341 complete PDF pages have been ingested and benchmarked**. A representative 1,000+ page full-text validation remains necessary for the challenge's scale target.
 
-## Deploy (Streamlit Community Cloud)
+“Latest” means latest known in the loaded corpus, not a live FAA status check. Comment-period calculations use the fixed hackathon date, **31 October 2026**, in [revisions.py](aerotrace/revisions.py). Status/disclaimer logic is NPRM-oriented and needs extension before treating arbitrary uploads as final directives or manuals.
 
-1. Sign in at [share.streamlit.io](https://share.streamlit.io) with GitHub (grant access to this repo if it is private).
-2. **Create app** → repository `broccoli0616/aeroTrace`, branch `main`, main file `app.py`.
-   Under **Advanced settings** pick Python 3.12 and paste the secrets from `.streamlit/secrets.toml.example`
-   with real values. **Always set `APP_PASSWORD`**: without it anyone with the link can use the API keys.
-3. **Deploy.** The first visit after each start builds the index (and, with embeddings on, embeds all passages:
-   about 30 s and a fraction of a cent).
+## Demo walkthrough
 
-Secrets are copied into environment variables at startup, so the app reads them exactly like `.env` locally.
-Uploaded documents are stored on the app's temporary disk and are **lost when the app restarts or goes to sleep**.
+Try these with the bundled corpus and no aircraft overrides in the sidebar:
 
-## Repo layout
+| Question | Demonstrates |
+|---|---|
+| `Does the R22 directive apply to serial number 1200?` | Supported serial range, cited rule, and withdrawal warning |
+| `Does the R22 directive apply to serial number 2600?` | `DOES_NOT_APPLY` with the failed condition |
+| `Does the R22 directive apply to my helicopter?` | `MISSING_CONFIG` rather than an assumed serial number |
+| `What does the revised proposal FAA-2026-1338 require for A330?` | Revision conflict refusal |
+| `What is the MR servo inspection?` | Ambiguous abbreviation refusal |
+| `What is the torque for the Boeing 777X flap track?` | Out-of-scope refusal |
 
-```
-aerotrace/      ingest.py  rules.py  revisions.py  index.py  compose.py  verify.py  engine.py  cli.py  text.py
-app.py          Streamlit UI (answer view, highlighted sources, JSON, audit-log download)
-eval/           queries.jsonl  run_eval.py  results.md  bench_latency.py
-tests/          unit tests (incl. the challenge's S-1000..S-1500 example)
-data/           ad_nprm.tsv, pdfs/
-docs/           PRD.md, problem_statement.png
+Show the source passage, applicability result, revision status, and JSON. Then upload a text PDF and demonstrate the review-to-search workflow. Results can change with the corpus and retrieval configuration.
+
+## Tests and evaluation
+
+```bash
+# Offline tests: conftest.py disables live embedding calls.
+python -m pytest -q
+
+# BM25 + extractive evaluation; writes eval/results.md.
+# Use --out to select another report path.
+AEROTRACE_EMBEDDINGS= python eval/run_eval.py
+
+# Synthetic benchmark: repeats the existing corpus 20 times.
+AEROTRACE_EMBEDDINGS= python eval/bench_latency.py 20
 ```
 
-## Disclaimer
+The last verified local test run passed **46 tests**, covering rules, verification, mocked embeddings, uploads, and Streamlit interactions. The checked-in [evaluation report](eval/results.md) records **38/38** passing queries in extractive mode. It checks status, selected refusal codes, applicability, and expected cited docket where specified.
 
-AeroTrace is a search and verification aid, not an approval of maintenance actions. The corpus contains **proposed**
-rules (NPRMs), which are not legally binding. Always confirm against the official FAA / Federal Register document.
+These are team-authored tests, not an independent assessment. They do not establish zero hallucination, complete page-level citation accuracy, or live API reliability. Repeating existing text is not a substitute for testing diverse documents. Measure live embedding and Claude latency separately from the offline baseline; query timings exclude initial index construction.
+
+## Deployment configuration
+
+Use `app.py` as the Streamlit entry point and install `requirements.txt`. The repository includes a [secrets template](.streamlit/secrets.toml.example); configure credentials through the host's secrets settings. The app copies supported top-level secrets into environment variables.
+
+Set `APP_PASSWORD` for the shared demo password gate. This is not individual user authentication or document-level permissions. For Streamlit Community Cloud, treat the local upload directory and cache as temporary and keep source-file backups outside the app.
+
+## Troubleshooting
+
+| Symptom | Next step |
+|---|---|
+| `.venv/bin/activate` does not exist | Run `python3 -m venv .venv` first |
+| Missing `pypdf`, `openpyxl`, or `docx` | Activate `.venv`, then run `python -m pip install -r requirements.txt` |
+| Wrong Python environment | Run `./.venv/bin/python -m streamlit run app.py` from the repository root |
+| JSON says `bm25` despite an embedding key | Check `.env`, uncomment settings, restart, and inspect terminal errors |
+| OpenRouter model error | Check the model name, including its vendor prefix |
+| Claude toggle disabled | Configure a direct `ANTHROPIC_API_KEY` and restart |
+| Uploaded spreadsheet reported as duplicate | Its records may already be in the bundled corpus |
+
+## Repository map
+
+```text
+app.py                  Streamlit interface and password gate
+aerotrace/
+  ingest.py             Base corpus and PDF loading
+  uploads.py            Upload parsing, review edits, disk storage
+  index.py              BM25, embeddings, vector cache, RRF
+  engine.py             Query pipeline and corpus management
+  rules.py              Applicability extraction and evaluation
+  revisions.py          Revision grouping and status
+  compose.py            Extractive answers and optional Claude integration
+  verify.py             Source-text checks
+  cli.py                JSON command-line interface
+data/                   Bundled corpus and local document folders
+docs/                   Problem statement and PRD
+eval/                   Query set, reports, benchmarks
+tests/                  Automated tests
+```
+
+## Next validation priorities
+
+- Compare BM25 and hybrid retrieval on independently written paraphrases and exact model/part-number queries.
+- Validate citations and retrieval latency on 1,000+ actual full-text pages, reporting API timing separately.
+- Test negation, mixed units, component/value mismatches, and conflicting instructions beyond token overlap.
+- Improve supported applicability conditions and source-page navigation, retaining refusals for unsupported conditions.
 
 ## License
 
-MIT, see [LICENSE](LICENSE).
+Project code is released under the [MIT License](LICENSE). Source documents retain their respective terms.
