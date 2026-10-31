@@ -3,6 +3,8 @@
 The LLM (optional) only writes sentences. Every decision about facts, applicability, revisions
 and refusals is made by deterministic code in this file and in rules.py / revisions.py / verify.py.
 """
+import hashlib
+import os
 import re
 import time
 from pathlib import Path
@@ -12,6 +14,7 @@ from .index import HybridIndex
 from .ingest import REV_CORRECTION, REV_EXTENSION, REV_WITHDRAWAL, load_pdfs, load_tsv
 from .revisions import RevisionIndex
 from .text import tokenize
+from .uploads import UploadError, UploadStore, apply_overrides, file_hash, parse
 
 MIN_EVIDENCE_SCORE = 6.0  # BM25 score below which we say "no evidence" (calibrated on eval/queries.jsonl)
 MIN_COVERAGE = 0.5  # share of the question's topic words that the verified answer must contain
@@ -45,11 +48,18 @@ _LATEST_INTENT = re.compile(r"\b(latest|current|newest|most recent)\b", re.I)
 
 
 class AeroTrace:
-    def __init__(self, tsv_path="data/ad_nprm.tsv", pdf_dir="data/pdfs"):
+    def __init__(self, tsv_path="data/ad_nprm.tsv", pdf_dir="data/pdfs", upload_dir=None):
         docs, passages = load_tsv(tsv_path)
         pdocs, ppassages = load_pdfs(pdf_dir)
-        self.docs = {d["doc_id"]: d for d in docs + pdocs}
-        self.passages = passages + ppassages
+        self.uploads = UploadStore(upload_dir) if upload_dir else None
+        udocs, upassages, self.upload_errors = self.uploads.load_all() if self.uploads else ([], [], [])
+        self.docs = {d["doc_id"]: d for d in docs + pdocs + udocs}
+        self.passages = passages + ppassages + upassages
+        self._rebuild()
+
+    def _rebuild(self):
+        """Derive every index from self.docs / self.passages. Cheap except for embeddings, which are cached
+        per passage, so adding a document only embeds that document's passages."""
         self.pidx = {p["passage_id"]: i for i, p in enumerate(self.passages)}
         self.by_doc = {}
         for i, p in enumerate(self.passages):
@@ -61,6 +71,53 @@ class AeroTrace:
         self.model_vocab = sorted({m for r in self.rules.values() for m in r["applies_to_models"]}, key=len, reverse=True)
         self.corpus_text = " ".join(
             [p["text"] for p in self.passages] + [d["title"] + " " + d["make_raw"] for d in self.docs.values()]).lower()
+
+    # ---------- uploads ----------
+    def add_upload(self, filename: str, data: bytes, overrides: dict | None = None) -> dict:
+        """Parse, de-duplicate, store and index an uploaded file. Returns a summary for the UI.
+        Raises UploadError if the file is rejected."""
+        if not self.uploads:
+            raise UploadError("Uploads are not enabled.")
+        sha = file_hash(data)
+        if self.uploads.find(sha):
+            return {"status": "already_added", "docs": [], "skipped": []}
+        r = parse(filename, data)
+        docs, passages = apply_overrides(r["docs"], r["passages"], overrides or {})
+        clash = [d["doc_id"] for d in docs if d["doc_id"] in self.docs]
+        if clash:
+            raise UploadError(f"A document named {clash[0]} is already loaded. Rename the file and try again.")
+        # Rows identical to a document already in the corpus (e.g. re-uploading the official spreadsheet)
+        # would otherwise show up as conflicting versions of themselves.
+        existing = {self._fingerprint(d, [self.passages[i] for i in self.by_doc.get(d, [])]) for d in self.docs}
+        by_doc = {}
+        for p in passages:
+            by_doc.setdefault(p["doc_id"], []).append(p)
+        keep = [d for d in docs if self._fingerprint(d["doc_id"], by_doc.get(d["doc_id"], []), d) not in existing]
+        skipped = [d["doc_id"] for d in docs if d not in keep]
+        if not keep:
+            return {"status": "duplicate", "docs": [], "skipped": skipped}
+        kept_ids = {d["doc_id"] for d in keep}
+        self.uploads.save(filename, data, overrides)
+        self.docs.update({d["doc_id"]: d for d in keep})
+        self.passages += [p for p in passages if p["doc_id"] in kept_ids]
+        self._rebuild()
+        return {"status": "added", "docs": sorted(kept_ids), "skipped": skipped, "warnings": r["warnings"]}
+
+    def remove_upload(self, sha: str) -> int:
+        """Delete an uploaded file and drop its documents from the index. Returns how many documents were removed."""
+        gone = {d for d, doc in self.docs.items() if doc.get("upload", {}).get("sha256") == sha}
+        if self.uploads:
+            self.uploads.delete(sha)
+        if gone:
+            self.docs = {d: doc for d, doc in self.docs.items() if d not in gone}
+            self.passages = [p for p in self.passages if p["doc_id"] not in gone]
+            self._rebuild()
+        return len(gone)
+
+    def _fingerprint(self, doc_id: str, passages: list[dict], doc: dict | None = None) -> str:
+        doc = doc or self.docs[doc_id]
+        body = "\x00".join(sorted(p["text"] for p in passages if p["paragraph"] != "metadata"))
+        return hashlib.sha256(f"{doc['docket'].upper()}\x00{body}".encode()).hexdigest()
 
     # ---------- query understanding ----------
     def parse_config(self, query: str) -> dict:
@@ -293,7 +350,8 @@ class AeroTrace:
                 "verification": chk,
                 "citations": [{"document_id": d["doc_id"], "docket": d["docket"], "revision": d["revision"],
                                "page": p["page"], "paragraph": p["paragraph"], "section": p["section"],
-                               "fr_citation": d["fr_citation"], "url": d["url"], "source_text": p["text"]}],
+                               "fr_citation": d["fr_citation"], "url": d["url"], "source_text": p["text"],
+                               "uploaded": "upload" in d, "source_kind": d["source_kind"]}],
             })
         if not res["statements"]:
             if drafted:
@@ -319,5 +377,6 @@ def get_engine() -> AeroTrace:
     global _ENGINE
     if _ENGINE is None:
         root = Path(__file__).resolve().parent.parent
-        _ENGINE = AeroTrace(root / "data" / "ad_nprm.tsv", root / "data" / "pdfs")
+        uploads = os.getenv("AEROTRACE_UPLOAD_DIR") or root / "data" / "uploads"
+        _ENGINE = AeroTrace(root / "data" / "ad_nprm.tsv", root / "data" / "pdfs", uploads)
     return _ENGINE

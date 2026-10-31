@@ -95,15 +95,26 @@ class HybridIndex:
             return v / np.linalg.norm(v, axis=1, keepdims=True)
 
         self._embed = embed
-        # Cache keyed on model + exact corpus text, so a changed corpus is re-embedded automatically.
-        digest = hashlib.sha256((model + "\x00" + "\x00".join(texts)).encode()).hexdigest()[:16]
-        cache = Path(".cache") / f"openai_{model.replace('/', '_')}_{digest}.npy"
-        if cache.exists():
-            self.vectors = np.load(cache)
-        else:
-            self.vectors = embed(texts)
-            cache.parent.mkdir(exist_ok=True)
-            np.save(cache, self.vectors)
+        # Per-passage cache keyed on the hash of each passage's text: adding or editing documents only embeds
+        # the passages that changed.
+        cache_path = Path(".cache") / f"openai_{model.replace('/', '_')}.npz"
+        keys = [hashlib.sha256(t.encode()).hexdigest()[:24] for t in texts]
+        cache = {}
+        if cache_path.exists():
+            z = np.load(cache_path)
+            cache = dict(zip(z["keys"].tolist(), z["vectors"]))
+        else:  # one-time migration from the old whole-corpus cache file, if it matches the current corpus
+            digest = hashlib.sha256((model + "\x00" + "\x00".join(texts)).encode()).hexdigest()[:16]
+            old = cache_path.with_name(f"openai_{model.replace('/', '_')}_{digest}.npy")
+            if old.exists():
+                cache = dict(zip(keys, np.load(old)))
+        missing = {k: t for k, t in zip(keys, texts) if k not in cache}
+        if missing:
+            cache.update(zip(missing, embed(list(missing.values()))))
+        if missing or not cache_path.exists():
+            cache_path.parent.mkdir(exist_ok=True)
+            np.savez(cache_path, keys=np.array(list(cache)), vectors=np.stack(list(cache.values())))
+        self.vectors = np.stack([cache[k] for k in keys])
         self.embed_backend = f"{'openrouter' if openrouter else 'openai'}/{model}"
 
     def search(self, query: str, allowed: set[int] | None = None, k: int = 30) -> list[tuple[int, float, float | None]]:

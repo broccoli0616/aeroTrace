@@ -28,6 +28,10 @@ htmlcov/
 # Optional embedding model downloads / caches
 .cache/
 *.npy
+*.npz
+
+# User-uploaded documents (may be confidential)
+data/uploads/
 
 # Editors and OS files
 .vscode/

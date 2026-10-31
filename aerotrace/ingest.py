@@ -95,56 +95,68 @@ def _split_fulltext(raw: str) -> list[tuple[str, str, str]]:
     return out
 
 
+FAA_COLUMNS = {"Docket Number", "Subject Heading", "Summary", "Make", "Model", "Page Number", "Citation",
+               "Citation Publish Date", "Issue Date", "Comments Due Date", "AD Number", "Comments",
+               "Link for Submitting Public Comment", "Product Type", "Product Subtype", "CFR Part Reference"}
+
+
 def load_tsv(path: str | Path) -> tuple[list[dict], list[dict]]:
-    docs, passages, seen = [], [], set()
     with open(path, encoding="utf-8", errors="replace") as f:
-        for row_no, row in enumerate(csv.DictReader(f, delimiter="\t"), start=1):
-            docket = row["Docket Number"].strip()
-            pages = row["Page Number"].strip().strip("()")
-            m = re.search(r"\d+", pages)
-            first_page = m.group() if m else f"row{row_no}"
-            link_field = row["Link for Submitting Public Comment"].strip()
-            fulltext = "" if link_field.startswith("http") else link_field
-            url = link_field if link_field.startswith("http") else (_URL_RE.search(link_field) or [None])[0]
-            comments = row["Comments"].strip()
-            summary = clean(row["Summary"])
-            doc_id = f"{docket}:p{first_page}"
-            if doc_id in seen:  # two rows can share docket + page (e.g. an NPRM and its withdrawal)
-                doc_id = f"{doc_id}-row{row_no}"
-            seen.add(doc_id)
-            doc = {
-                "doc_id": doc_id,
-                "row": row_no,
-                "docket": docket,
-                "docket_group": norm_docket(docket),
-                "revision": _revision_label(docket, comments, summary),
-                "title": row["Subject Heading"].strip(),
-                "make": normalize_make(row["Make"]) if row["Make"].strip() else "",
-                "make_raw": row["Make"].strip(),
-                "models": [m.strip() for m in row["Model"].split("|") if m.strip()],
-                "product_type": row["Product Type"].strip(),
-                "product_subtype": row["Product Subtype"].strip(),
-                "cfr_part": row["CFR Part Reference"].strip(),
-                "ad_number": row["AD Number"].strip(),
-                "issue_date": _date(row["Issue Date"]),
-                "publish_date": _date(row["Citation Publish Date"]),
-                "comments_due": _date(row["Comments Due Date"]),
-                "fr_citation": row["Citation"].strip(),
-                "pages": pages,
-                "url": url,
-                "summary": summary,
-                "has_fulltext": bool(fulltext),
-                "comments": comments,
-                "withdrawn": _revision_label(docket, comments, summary) == REV_WITHDRAWAL,
-                "source_kind": "FAA AD NPRM (proposed rule, not legally binding)",
-            }
-            docs.append(doc)
-            passages.append(_passage(doc, "metadata", "Record metadata", _metadata_text(doc)))
-            if summary:
-                passages.append(_passage(doc, "summary", "Summary", summary))
-            if fulltext:
-                for pid, title, text in _split_fulltext(fulltext):
-                    passages.append(_passage(doc, pid, title, text))
+        return load_rows(csv.DictReader(f, delimiter="\t"))
+
+
+def load_rows(rows, id_prefix: str = "", extra: dict | None = None) -> tuple[list[dict], list[dict]]:
+    """Rows in the FAA AD NPRM spreadsheet layout (from the TSV or an uploaded TSV / Excel sheet)."""
+    docs, passages, seen = [], [], set()
+    for row_no, row in enumerate(rows, start=1):
+        row = {k: ("" if v is None else str(v)) for k, v in row.items() if k}
+        docket = row["Docket Number"].strip()
+        pages = row["Page Number"].strip().strip("()")
+        m = re.search(r"\d+", pages)
+        first_page = m.group() if m else f"row{row_no}"
+        link_field = row["Link for Submitting Public Comment"].strip()
+        fulltext = "" if link_field.startswith("http") else link_field
+        url = link_field if link_field.startswith("http") else (_URL_RE.search(link_field) or [None])[0]
+        comments = row["Comments"].strip()
+        summary = clean(row["Summary"])
+        doc_id = f"{id_prefix}{docket}:p{first_page}"
+        if doc_id in seen:  # two rows can share docket + page (e.g. an NPRM and its withdrawal)
+            doc_id = f"{doc_id}-row{row_no}"
+        seen.add(doc_id)
+        doc = {
+            "doc_id": doc_id,
+            "row": row_no,
+            "docket": docket,
+            "docket_group": norm_docket(docket),
+            "revision": _revision_label(docket, comments, summary),
+            "title": row["Subject Heading"].strip(),
+            "make": normalize_make(row["Make"]) if row["Make"].strip() else "",
+            "make_raw": row["Make"].strip(),
+            "models": [m.strip() for m in row["Model"].split("|") if m.strip()],
+            "product_type": row["Product Type"].strip(),
+            "product_subtype": row["Product Subtype"].strip(),
+            "cfr_part": row["CFR Part Reference"].strip(),
+            "ad_number": row["AD Number"].strip(),
+            "issue_date": _date(row["Issue Date"]),
+            "publish_date": _date(row["Citation Publish Date"]),
+            "comments_due": _date(row["Comments Due Date"]),
+            "fr_citation": row["Citation"].strip(),
+            "pages": pages,
+            "url": url,
+            "summary": summary,
+            "has_fulltext": bool(fulltext),
+            "comments": comments,
+            "withdrawn": _revision_label(docket, comments, summary) == REV_WITHDRAWAL,
+            "source_kind": "FAA AD NPRM (proposed rule, not legally binding)",
+            **(extra or {}),
+        }
+        docs.append(doc)
+        passages.append(_passage(doc, "metadata", "Record metadata", _metadata_text(doc)))
+        if summary:
+            passages.append(_passage(doc, "summary", "Summary", summary))
+        if fulltext:
+            for pid, title, text in _split_fulltext(fulltext):
+                passages.append(_passage(doc, pid, title, text))
     return docs, passages
 
 

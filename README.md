@@ -76,8 +76,15 @@ Claude (optional) only rewrites retrieved passages. Any sentence that doesn't ma
 Rule extraction results: 152 rules fully parsed, 193 partial (model known, but an extra condition such as "certain
 serial numbers per service bulletin" could not be parsed, so these give `UNPARSED_RULE` instead of a guess), 86 unparsed.
 
-**Adding more documents:** put PDFs in `data/pdfs/` named like `2026-21-03_revA.pdf`. Each page/paragraph becomes a
-citable passage; pages without extractable text are flagged rather than OCR-guessed.
+**Adding more documents:** drop a file in the sidebar under **📎 Add documents**. Accepted: PDF, Word (.docx),
+Excel (.xlsx) and TSV, up to 50 MB; anything else (including renamed files) is rejected with a reason
+(`aerotrace/uploads.py`). The review screen shows the docket, make, models, revision and detected applicability rule;
+correct them, then **Confirm & add**. Only then is the document indexed and embedded (just its own passages; vectors are
+cached per passage). Uploads are saved in `data/uploads/` (gitignored), reloaded on restart, and every citation from
+them is labelled *uploaded, not verified against the Federal Register*. Spreadsheets in the FAA NPRM layout load like
+`ad_nprm.tsv`; other tables become one passage per row. Rows identical to the official corpus are skipped as duplicates.
+Scanned pages without extractable text are flagged rather than OCR-guessed. Set `AEROTRACE_UPLOAD_DIR` to store
+uploads elsewhere. (PDFs placed directly in `data/pdfs/`, named like `2026-21-03_revA.pdf`, are still loaded too.)
 
 ## Evaluation
 
