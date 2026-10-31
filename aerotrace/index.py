@@ -1,11 +1,17 @@
 """Hybrid retrieval: BM25 keyword search, plus optional semantic vectors merged with reciprocal rank fusion.
 
-BM25 is pure Python and needs no downloads. If `sentence-transformers` is installed and
-AEROTRACE_EMBEDDINGS=1 is set, a vector index is added for semantic matches.
+BM25 is pure Python and needs no downloads. A vector index for semantic matches is added when
+AEROTRACE_EMBEDDINGS is set:
+- AEROTRACE_EMBEDDINGS=openai: OpenAI embeddings (needs OPENAI_API_KEY; model from AEROTRACE_EMBED_MODEL,
+  default text-embedding-3-small). Passage vectors are cached in .cache/ so restarts don't re-embed.
+- AEROTRACE_EMBEDDINGS=1: local sentence-transformers (all-MiniLM-L6-v2).
+If the backend is unavailable, retrieval silently falls back to BM25 only.
 """
+import hashlib
 import math
 import os
 from collections import Counter, defaultdict
+from pathlib import Path
 
 from .text import tokenize
 
@@ -50,24 +56,70 @@ class HybridIndex:
         ]
         self.bm25 = BM25(texts)
         self.vectors = None
-        if os.getenv("AEROTRACE_EMBEDDINGS") == "1":
-            try:
+        self.embed_backend = None
+        backend = os.getenv("AEROTRACE_EMBEDDINGS", "").lower()
+        try:
+            if backend == "openai":
+                self._init_openai(texts)
+            elif backend == "1":
                 from sentence_transformers import SentenceTransformer
 
-                self.encoder = SentenceTransformer("all-MiniLM-L6-v2")
-                self.vectors = self.encoder.encode(texts, normalize_embeddings=True, batch_size=64)
-            except ImportError:
-                print("sentence-transformers not installed; using BM25 only")
+                encoder = SentenceTransformer("all-MiniLM-L6-v2")
+                self._embed = lambda batch: encoder.encode(batch, normalize_embeddings=True, batch_size=64)
+                self.vectors = self._embed(texts)
+                self.embed_backend = "sentence-transformers/all-MiniLM-L6-v2"
+        except Exception as e:  # missing package, bad key, network error: keep working on BM25
+            print(f"embeddings disabled ({type(e).__name__}: {e}); using BM25 only")
+            self.vectors = None
 
-    def search(self, query: str, allowed: set[int] | None = None, k: int = 30) -> list[tuple[int, float]]:
-        """Returns (passage_index, bm25_score). With vectors, order comes from RRF but BM25 scores are kept
-        so the engine's evidence threshold still means 'keywords actually matched'."""
+    def _init_openai(self, texts: list[str]):
+        import numpy as np
+        from openai import OpenAI
+
+        key = os.getenv("OPENAI_API_KEY", "")
+        if not key:
+            raise RuntimeError("OPENAI_API_KEY is not set")
+        # OpenRouter keys (sk-or-...) use OpenRouter's OpenAI-compatible endpoint and vendor-prefixed model names.
+        openrouter = key.startswith("sk-or-")
+        base_url = os.getenv("OPENAI_BASE_URL") or ("https://openrouter.ai/api/v1" if openrouter else None)
+        client = OpenAI(api_key=key, base_url=base_url)
+        model = os.getenv("AEROTRACE_EMBED_MODEL") or (
+            "openai/text-embedding-3-small" if openrouter else "text-embedding-3-small")
+
+        def embed(batch: list[str]):
+            vecs = []
+            for start in range(0, len(batch), 200):  # well under the 2048-input / 300k-token request limits
+                resp = client.embeddings.create(model=model, input=batch[start:start + 200])
+                vecs.extend(d.embedding for d in resp.data)
+            v = np.asarray(vecs, dtype=np.float32)
+            return v / np.linalg.norm(v, axis=1, keepdims=True)
+
+        self._embed = embed
+        # Cache keyed on model + exact corpus text, so a changed corpus is re-embedded automatically.
+        digest = hashlib.sha256((model + "\x00" + "\x00".join(texts)).encode()).hexdigest()[:16]
+        cache = Path(".cache") / f"openai_{model.replace('/', '_')}_{digest}.npy"
+        if cache.exists():
+            self.vectors = np.load(cache)
+        else:
+            self.vectors = embed(texts)
+            cache.parent.mkdir(exist_ok=True)
+            np.save(cache, self.vectors)
+        self.embed_backend = f"{'openrouter' if openrouter else 'openai'}/{model}"
+
+    def search(self, query: str, allowed: set[int] | None = None, k: int = 30) -> list[tuple[int, float, float | None]]:
+        """Returns (passage_index, bm25_score, semantic_similarity). With vectors, order comes from RRF but BM25
+        scores are kept so the engine's evidence threshold still means 'keywords actually matched'.
+        semantic_similarity is the cosine similarity between query and passage, or None without vectors."""
         kw = self.bm25.search(query, allowed, k=100)
         if self.vectors is None:
-            return kw[:k]
+            return [(i, s, None) for i, s in kw[:k]]
         import numpy as np
 
-        q = self.encoder.encode([query], normalize_embeddings=True)[0]
+        try:
+            q = self._embed([query])[0]
+        except Exception as e:  # API hiccup on one query shouldn't break search
+            print(f"query embedding failed ({type(e).__name__}: {e}); using BM25 only for this query")
+            return [(i, s, None) for i, s in kw[:k]]
         sims = self.vectors @ q
         order = [i for i in np.argsort(-sims) if allowed is None or i in allowed][:100]
         rrf = defaultdict(float)
@@ -76,4 +128,5 @@ class HybridIndex:
         for rank, i in enumerate(order):
             rrf[int(i)] += 1 / (60 + rank)
         kw_score = dict(kw)
-        return [(i, kw_score.get(i, 0.0)) for i, _ in sorted(rrf.items(), key=lambda kv: -kv[1])[:k]]
+        return [(i, kw_score.get(i, 0.0), float(sims[i]))
+                for i, _ in sorted(rrf.items(), key=lambda kv: -kv[1])[:k]]

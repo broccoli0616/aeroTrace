@@ -2,4 +2,6 @@ streamlit>=1.40
 anthropic>=0.70
 pypdf>=5.0
 pytest>=8.0
-# optional semantic search: pip install sentence-transformers, then export AEROTRACE_EMBEDDINGS=1
+openai>=1.0
+# optional semantic search: export OPENAI_API_KEY=... AEROTRACE_EMBEDDINGS=openai
+# (or local: pip install sentence-transformers, then export AEROTRACE_EMBEDDINGS=1)

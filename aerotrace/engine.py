@@ -119,7 +119,8 @@ class AeroTrace:
                 cfg[k] = v.strip()
         res = {"query": query, "status": None, "reason_code": None, "message": None, "configuration": cfg,
                "applicability": None, "statements": [], "removed_statements": [], "revision_status": None,
-               "candidates": [], "warnings": [], "mode": mode, "disclaimer": DISCLAIMER, "latency_ms": None}
+               "candidates": [], "warnings": [], "mode": mode, "retrieval": self.index.embed_backend and f"bm25+{self.index.embed_backend}" or "bm25",
+               "disclaimer": DISCLAIMER, "latency_ms": None}
 
         def finish(status, reason=None, message=None):
             res.update(status=status, reason_code=reason, message=message,
@@ -176,12 +177,15 @@ class AeroTrace:
         if not hits or (hits[0][1] < MIN_EVIDENCE_SCORE and not target_docs):
             return refuse("NO_EVIDENCE", "No passage in the corpus supports an answer. Try naming the aircraft model, "
                                          "the part or system, or the docket number.")
-        doc_scores = {}
-        for i, s in hits:
+        doc_scores, doc_sims = {}, {}
+        for i, s, sim in hits:
             d = self.passages[i]["doc_id"]
             doc_scores[d] = max(doc_scores.get(d, 0), s)
+            if sim is not None:
+                doc_sims[d] = max(doc_sims.get(d, -1.0), sim)
         ranked = sorted(doc_scores, key=lambda d: -doc_scores[d])
         res["candidates"] = [{"document_id": d, "title": self.docs[d]["title"], "score": round(doc_scores[d], 2),
+                              "semantic_similarity": round(doc_sims[d], 3) if d in doc_sims else None,
                               "models": self.rules[d]["applies_to_models"][:8]} for d in ranked[:5]]
         top = ranked[0]
 
@@ -252,7 +256,7 @@ class AeroTrace:
         d = self.docs[top]
         ignore = set(tokenize(" ".join([d["make"], d["make_raw"], d["docket"], cfg["model"] or "",
                                         cfg["serial_number"] or "", cfg["part_number"] or ""] + rule["applies_to_models"])))
-        cand = [self.passages[i] for i, _ in hits if self.passages[i]["doc_id"] == top][:5]
+        cand = [self.passages[i] for i, *_ in hits if self.passages[i]["doc_id"] == top][:5]
         summary_p = next((self.passages[i] for i in self.by_doc.get(top, []) if self.passages[i]["paragraph"] == "summary"), None)
         if summary_p and summary_p not in cand:
             cand.append(summary_p)
