@@ -1,0 +1,21 @@
+{"id": 1, "split": "dev", "category": "direct", "query": "What inspection does FAA-2026-11814 propose?", "target": "NPRM-001"}
+{"id": 2, "split": "dev", "category": "direct", "query": "What modification is proposed for the MBB-BK 117 D-2 fuel system?", "target": "NPRM-004"}
+{"id": 3, "split": "dev", "category": "direct", "query": "What is required for the DG-1000T propeller adapter disk?", "target": "NPRM-016"}
+{"id": 4, "split": "dev", "category": "direct", "query": "What inspection is proposed for the EC135 yaw actuator ball pivot?", "target": "NPRM-022"}
+{"id": 5, "split": "dev", "category": "direct", "query": "Engine compartment firewall modification for the AS 365 N3", "target": "NPRM-025"}
+{"id": 6, "split": "dev", "category": "status", "query": "Was the Boeing 787 proposal in FAA-2025-0204 withdrawn?", "target": "NPRM-013"}
+{"id": 7, "split": "dev", "category": "identifier", "query": "Which AD does FAA-2026-11811 propose to supersede?", "target": "NPRM-002"}
+{"id": 8, "split": "dev", "category": "similar", "query": "Which proposal addresses an H160-B tail rotor deicing harness rupture?", "target": "NPRM-008"}
+{"id": 9, "split": "dev", "category": "similar", "query": "What is proposed for the A119 and AW119 MKII main rotor blade abrasion strip?", "target": "NPRM-009"}
+{"id": 10, "split": "dev", "category": "similar", "query": "What change is proposed for the P-180 flight control cable tension regulator?", "target": "NPRM-006"}
+{"id": 11, "split": "heldout", "category": "direct", "query": "What does the Airbus A330-941 radio management panel proposal require?", "target": "NPRM-003"}
+{"id": 12, "split": "heldout", "category": "direct", "query": "What action is proposed for the Bell 505 vertical stabilizer cap assembly?", "target": "NPRM-019"}
+{"id": 13, "split": "heldout", "category": "direct", "query": "What does FAA-2026-11796 propose for EMB-545 and EMB-550 airplanes?", "target": "NPRM-017"}
+{"id": 14, "split": "heldout", "category": "similar", "query": "Which proposal concerns EC135 yaw actuator ball pivot corrosion?", "target": "NPRM-022"}
+{"id": 15, "split": "heldout", "category": "similar", "query": "Which proposal addresses the AW189 tail assembly forward fitting?", "target": "NPRM-024"}
+{"id": 16, "split": "heldout", "category": "status", "query": "Which supplied notice withdrew the proposed 787 common core system software directive?", "target": "NPRM-013"}
+{"id": 17, "split": "heldout", "category": "identifier", "query": "What does FAA-2026-11787 propose?", "target": "NPRM-025"}
+{"id": 18, "split": "heldout", "category": "similar", "query": "What is proposed for Vulcanair P.68 wing spar attachment fittings?", "target": "NPRM-018"}
+{"id": 19, "split": "heldout", "category": "similar", "query": "Which proposal addresses AS350 emergency flotation gear?", "target": "NPRM-015"}
+{"id": 20, "split": "heldout", "category": "similar", "query": "What does the radio altimeter proposal require for helicopters?", "target": "NPRM-012"}
+
