@@ -224,6 +224,9 @@ if submitted:
     if not question.strip():
         st.session_state.pop("result", None)
         st.session_state["last_error"] = "Enter a question before running the evidence search."
+    elif not os.getenv("OPENAI_API_KEY"):
+        st.session_state.pop("result", None)
+        st.session_state["last_error"] = "OPENAI_API_KEY is missing. Add the OpenRouter key to this app's Streamlit Secrets."
     elif not os.getenv("ANTHROPIC_API_KEY"):
         st.session_state.pop("result", None)
         st.session_state["last_error"] = "ANTHROPIC_API_KEY is missing. Add it to .env to enable cited synthesis."
