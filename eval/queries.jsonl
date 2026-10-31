@@ -1,0 +1,38 @@
+{"id": 1, "category": "answerable", "query": "What modification is proposed for the MBB-BK 117 D-2 fuel system?", "expect_status": "ANSWERED", "expect_docket": "FAA-2026-11812"}
+{"id": 2, "category": "answerable", "query": "What does the proposed AD for Airbus A350-941 HMU require?", "expect_status": "ANSWERED", "expect_docket": "FAA-2026-8807"}
+{"id": 3, "category": "answerable", "query": "Which seats must be inspected on the Dassault Falcon 6X?", "expect_status": "ANSWERED", "expect_docket": "FAA-2026-8805"}
+{"id": 4, "category": "answerable", "query": "What is proposed for the RAT compartment door seal on the Embraer EMB-545?", "expect_status": "ANSWERED", "expect_docket": "FAA-2026-8791"}
+{"id": 5, "category": "answerable", "query": "What is required for the DG-1000T propeller adapter disk?", "expect_status": "ANSWERED", "expect_docket": "FAA-2026-11798"}
+{"id": 6, "category": "answerable", "query": "What does the proposal require for the Trent XWB front bearing housing oil feed tube?", "expect_status": "ANSWERED", "expect_docket": "FAA-2026-8781"}
+{"id": 7, "category": "answerable", "query": "What inspection is proposed for the EC135 yaw actuator ball pivot?", "expect_status": "ANSWERED", "expect_docket": "FAA-2026-11792"}
+{"id": 8, "category": "answerable", "query": "Engine compartment firewall modification for the AS 365 N3", "expect_status": "ANSWERED", "expect_docket": "FAA-2026-11787"}
+{"id": 9, "category": "answerable", "query": "What does FAA-2026-11814 propose?", "expect_status": "ANSWERED", "expect_docket": "FAA-2026-11814"}
+{"id": 10, "category": "answerable", "query": "Which AD does FAA-2026-11811 propose to supersede?", "expect_status": "ANSWERED", "expect_docket": "FAA-2026-11811"}
+{"id": 11, "category": "answerable", "query": "Is FAA-2024-1884 withdrawn?", "expect_status": "ANSWERED", "expect_docket": "FAA-2024-1884"}
+{"id": 12, "category": "answerable", "query": "Boeing 787-8 LFCD split frames inspection", "expect_status": "ANSWERED", "expect_docket": "FAA-2026-8784"}
+{"id": 13, "category": "applies", "query": "Does the R22 directive apply to serial number 1200?", "expect_status": "ANSWERED", "expect_applicability": "APPLIES", "expect_docket": "FAA-2005-21679"}
+{"id": 14, "category": "applies", "query": "Does the Gulfstream G150 proposal apply to serial 220?", "expect_status": "ANSWERED", "expect_applicability": "APPLIES", "expect_docket": "FAA-2009-1028"}
+{"id": 15, "category": "applies", "query": "Does the Grob G 115E proposal apply to serial 82100/E?", "expect_status": "ANSWERED", "expect_applicability": "APPLIES", "expect_docket": "FAA-2013-0315"}
+{"id": 16, "category": "applies", "query": "Does the teeter stop directive apply to my helicopter?", "model": "R22", "serial_number": "0500", "expect_status": "ANSWERED", "expect_applicability": "APPLIES", "expect_docket": "FAA-2005-21679"}
+{"id": 17, "category": "does_not_apply", "query": "Does the R22 directive apply to serial number 2600?", "expect_status": "ANSWERED", "expect_applicability": "DOES_NOT_APPLY", "expect_docket": "FAA-2005-21679"}
+{"id": 18, "category": "does_not_apply", "query": "Does the Gulfstream G150 proposal apply to serial 300?", "expect_status": "ANSWERED", "expect_applicability": "DOES_NOT_APPLY", "expect_docket": "FAA-2009-1028"}
+{"id": 19, "category": "does_not_apply", "query": "Does FAA-2026-11814 apply to an EC135P2?", "expect_status": "ANSWERED", "expect_applicability": "DOES_NOT_APPLY", "expect_docket": "FAA-2026-11814"}
+{"id": 20, "category": "does_not_apply", "query": "Does the Gulfstream 200 landing gear proposal apply to serial 300?", "expect_status": "ANSWERED", "expect_applicability": "DOES_NOT_APPLY"}
+{"id": 21, "category": "missing_config", "query": "Does the R22 directive apply to my helicopter?", "expect_status": "REFUSED", "expect_reason": ["MISSING_CONFIG"]}
+{"id": 22, "category": "missing_config", "query": "Does it apply to my aircraft?", "expect_status": "REFUSED", "expect_reason": ["MISSING_CONFIG"]}
+{"id": 23, "category": "missing_config", "query": "Is serial number 1200 affected?", "expect_status": "REFUSED", "expect_reason": ["MISSING_CONFIG"]}
+{"id": 24, "category": "missing_config", "query": "Does FAA-2026-11814 apply to my helicopter?", "expect_status": "REFUSED", "expect_reason": ["MISSING_CONFIG"]}
+{"id": 25, "category": "conflict", "query": "What does the revised proposal FAA-2026-1338 require for A330?", "expect_status": "REFUSED", "expect_reason": ["CONFLICT"]}
+{"id": 26, "category": "conflict", "query": "Airbus A330 A340 proposed AD in docket FAA-2007-27715", "expect_status": "REFUSED", "expect_reason": ["CONFLICT"]}
+{"id": 27, "category": "conflict", "query": "What does FAA-2025-2277 propose for the BD-700-2A12?", "expect_status": "REFUSED", "expect_reason": ["CONFLICT"]}
+{"id": 28, "category": "conflict_resolved", "query": "What does the latest revision of FAA-2026-1338 require?", "expect_status": "ANSWERED", "expect_docket": "FAA-2026-1338"}
+{"id": 29, "category": "out_of_scope", "query": "What is the torque for the Boeing 777X flap track?", "expect_status": "REFUSED", "expect_reason": ["OUT_OF_SCOPE", "NO_EVIDENCE"]}
+{"id": 30, "category": "out_of_scope", "query": "What is the Cirrus SR22 parachute repack interval?", "expect_status": "REFUSED", "expect_reason": ["OUT_OF_SCOPE", "NO_EVIDENCE"]}
+{"id": 31, "category": "out_of_scope", "query": "What does FAA-2099-12345 propose?", "expect_status": "REFUSED", "expect_reason": ["OUT_OF_SCOPE"]}
+{"id": 32, "category": "out_of_scope", "query": "Show me the maintenance manual torque table for the A320 main landing gear axle nut", "expect_status": "REFUSED", "expect_reason": ["OUT_OF_SCOPE", "NO_EVIDENCE", "AMBIGUOUS_TERM"]}
+{"id": 33, "category": "out_of_scope", "query": "What is the recipe for chocolate cake?", "expect_status": "REFUSED", "expect_reason": ["OUT_OF_SCOPE", "NO_EVIDENCE"]}
+{"id": 34, "category": "out_of_scope", "query": "Tesla Model 3 battery recall", "expect_status": "REFUSED", "expect_reason": ["OUT_OF_SCOPE", "NO_EVIDENCE"]}
+{"id": 35, "category": "ambiguous", "query": "What is the MR servo inspection?", "expect_status": "REFUSED", "expect_reason": ["AMBIGUOUS_TERM"]}
+{"id": 36, "category": "ambiguous", "query": "inspection of fuel tank", "expect_status": "REFUSED", "expect_reason": ["AMBIGUOUS_TERM"]}
+{"id": 37, "category": "ambiguous", "query": "What is the TR blade inspection interval?", "expect_status": "REFUSED", "expect_reason": ["AMBIGUOUS_TERM"]}
+{"id": 38, "category": "ambiguous", "query": "seat inspection", "expect_status": "REFUSED", "expect_reason": ["AMBIGUOUS_TERM"]}

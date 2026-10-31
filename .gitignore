@@ -1,0 +1,41 @@
+# Python virtual environment
+.venv/
+venv/
+env/
+
+# Python cache / build files
+__pycache__/
+*.py[cod]
+*.egg-info/
+build/
+dist/
+
+# Test / tool caches
+.pytest_cache/
+.coverage
+htmlcov/
+.mypy_cache/
+.ruff_cache/
+
+# Secrets (API keys) - never commit these; .env.example is the shareable template
+.env
+.env.*
+!.env.example
+
+# Streamlit local secrets
+.streamlit/secrets.toml
+
+# Optional embedding model downloads / caches
+.cache/
+*.npy
+
+# Editors and OS files
+.vscode/
+.idea/
+*.swp
+.DS_Store
+Thumbs.db
+
+# Logs and audit exports
+*.log
+aerotrace_audit*.json
