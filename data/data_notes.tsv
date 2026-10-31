@@ -1,0 +1,7 @@
+topic	detail
+What this is	431 FAA airworthiness directive proposals (NPRMs). Only 21 have a final AD number.
+Revisions	99 dockets have more than one record (see revision_chains). 62 summaries say which AD they supersede.
+Applicability	16 summaries mention serial numbers. Model is filled for 86 rows; otherwise read applicability from the summary or the full document.
+Full text	Summaries total roughly 150 pages. To reach 1,000+ pages, fetch the full documents from federal_register_link (public, no login). Allowed and encouraged.
+Citations	Cite record_id plus the Federal Register citation and page range, and the section of the full document when used.
+Latency	The 3-second target applies to whatever corpus you index. State its size.

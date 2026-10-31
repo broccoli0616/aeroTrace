@@ -73,7 +73,7 @@ def _applicability_text(doc: dict, passages: list[dict]) -> tuple[str, str]:
         if m and p["paragraph"] != "summary":
             return m.group(0), p["passage_id"]
     first = re.split(r"(?<=\.)\s", doc["summary"], maxsplit=1)[0] if doc["summary"] else ""
-    return first, f"{doc['doc_id']}#summary"
+    return first, f"{doc['doc_id']}#{'summary' if doc['summary'] else 'metadata'}"
 
 
 def extract_rule(doc: dict, passages: list[dict]) -> dict:

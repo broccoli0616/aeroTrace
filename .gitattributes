@@ -1,0 +1,2 @@
+# Keep checksums stable and preserve whitespace inside the supplied source text.
+data/*.tsv text eol=lf whitespace=-blank-at-eol,-space-before-tab

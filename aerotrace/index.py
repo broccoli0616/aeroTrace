@@ -5,6 +5,7 @@ AEROTRACE_EMBEDDINGS=1 is set, a vector index is added for semantic matches.
 """
 import math
 import os
+import sys
 from collections import Counter, defaultdict
 
 from .text import tokenize
@@ -40,24 +41,25 @@ class BM25:
 
 
 class HybridIndex:
-    def __init__(self, passages: list[dict], docs_by_id: dict):
+    def __init__(self, passages: list[dict], docs_by_id: dict, enable_vectors: bool | None = None):
         self.passages = passages
         # Index passage text together with its document title, make and models so "Boeing 787" style queries hit.
         texts = [
             f"{p['text']} {docs_by_id[p['doc_id']]['title']} {docs_by_id[p['doc_id']]['make']} "
-            f"{' '.join(docs_by_id[p['doc_id']]['models'])} {docs_by_id[p['doc_id']]['docket']}"
+            f"{' '.join(docs_by_id[p['doc_id']]['models'])} {docs_by_id[p['doc_id']]['docket']} {p['doc_id']}"
             for p in passages
         ]
         self.bm25 = BM25(texts)
         self.vectors = None
-        if os.getenv("AEROTRACE_EMBEDDINGS") == "1":
+        use_vectors = os.getenv("AEROTRACE_EMBEDDINGS") == "1" if enable_vectors is None else enable_vectors
+        if use_vectors:
             try:
                 from sentence_transformers import SentenceTransformer
 
                 self.encoder = SentenceTransformer("all-MiniLM-L6-v2")
                 self.vectors = self.encoder.encode(texts, normalize_embeddings=True, batch_size=64)
             except ImportError:
-                print("sentence-transformers not installed; using BM25 only")
+                print("sentence-transformers not installed; using BM25 only", file=sys.stderr)
 
     def search(self, query: str, allowed: set[int] | None = None, k: int = 30) -> list[tuple[int, float]]:
         """Returns (passage_index, bm25_score). With vectors, order comes from RRF but BM25 scores are kept

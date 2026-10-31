@@ -1,0 +1,24 @@
+{
+  "workbook": "challenge4_ad_index.xlsx",
+  "sha256": "10b46b2b9f3a48760b4f62fa1a656fdeeb697205e4b5fc4ab830d93213206678",
+  "sheets": {
+    "nprm_index": {
+      "file": "ad_nprm.tsv",
+      "records": 431,
+      "header_row": 3,
+      "sha256": "a3285bdb0e90eeee1a7cb6a5524d7cc5e855367b0932c10fbcbf2a9d2fdcd255"
+    },
+    "revision_chains": {
+      "file": "revision_chains.tsv",
+      "records": 207,
+      "header_row": 3,
+      "sha256": "7b603d69ddcb472a597163c43844265c7343ec517b15c0f1ce5011b6fbb6d6be"
+    },
+    "data_notes": {
+      "file": "data_notes.tsv",
+      "records": 6,
+      "header_row": 1,
+      "sha256": "1905599abc122a791f4a1d308854bb5c12a4adcc2eb0a263398aa16c158a349e"
+    }
+  }
+}

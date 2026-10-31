@@ -1,12 +1,14 @@
 """AeroTrace demo UI. Run: streamlit run app.py"""
 import html
 import json
-import os
 import re
 
 import streamlit as st
 
 from aerotrace.engine import get_engine
+from aerotrace.config import claude_config, load_env
+
+load_env()
 
 st.set_page_config(page_title="AeroTrace", page_icon="✈️", layout="wide")
 
@@ -21,7 +23,7 @@ EXAMPLES = [
     "Does the R22 directive apply to serial number 2600?",
     "Does the R22 directive apply to my helicopter?",
     "What inspection is proposed for the main rotor servo-control upper ball bearing end on Airbus Helicopters?",
-    "What is the comment due date for FAA-2026-11814?",
+    "What does FAA-2026-11814 propose?",
     "What does the revised proposal FAA-2026-1338 require for A330?",
     "What is the torque for the Boeing 777X flap track?",
     "What is the MR servo inspection?",
@@ -29,7 +31,16 @@ EXAMPLES = [
 
 st.title("✈️ AeroTrace")
 st.caption("Traceable, context-aware search over FAA proposed Airworthiness Directives. "
-           "Every sentence is cited and verified; uncertain questions are refused with a reason code.")
+           "Inspect retrieved evidence or request an answer with source verification.")
+
+with st.sidebar:
+    workflow = st.radio("Workflow", ["Semantic evidence search", "Verified answer"])
+
+if workflow == "Semantic evidence search":
+    from aerotrace.search_ui import render_search
+
+    render_search(EXAMPLES)
+    st.stop()
 
 with st.sidebar:
     st.header("Aircraft configuration")
@@ -38,7 +49,7 @@ with st.sidebar:
     serial = st.text_input("Serial number", placeholder="e.g. 1200")
     part = st.text_input("Installed part number", placeholder="e.g. 3G6410A00131")
     st.header("Answer mode")
-    has_key = bool(os.getenv("ANTHROPIC_API_KEY"))
+    has_key = bool(claude_config().api_key)
     use_llm = st.toggle("Let Claude write the answer", value=False, disabled=not has_key,
                         help="Claude only rewrites retrieved passages; every sentence is still verified. "
                              "Needs ANTHROPIC_API_KEY." if has_key else "Set ANTHROPIC_API_KEY to enable.")

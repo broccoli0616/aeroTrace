@@ -8,6 +8,7 @@ import time
 from pathlib import Path
 
 from . import compose, rules, verify
+from .config import claude_config
 from .index import HybridIndex
 from .ingest import REV_CORRECTION, REV_EXTENSION, REV_WITHDRAWAL, load_pdfs, load_tsv
 from .revisions import RevisionIndex
@@ -16,6 +17,7 @@ from .text import tokenize
 MIN_EVIDENCE_SCORE = 6.0  # BM25 score below which we say "no evidence" (calibrated on eval/queries.jsonl)
 MIN_COVERAGE = 0.5  # share of the question's topic words that the verified answer must contain
 AMBIGUITY_RATIO = 0.9  # 2nd-best directive this close to the best (and no model/docket given) -> ambiguous
+SEMANTIC_AMBIGUITY_MARGIN = 0.03  # Conservative heuristic, not a calibrated confidence threshold.
 CONFLICT_RATIO = 0.5  # two proposal versions both match at least this well -> conflict
 
 DISCLAIMER = ("Search and verification aid only. Source is a PROPOSED airworthiness directive (NPRM), which is not "
@@ -35,6 +37,7 @@ KNOWN_MAKERS = ["cessna", "piper", "cirrus", "beechcraft", "diamond", "boeing", 
 
 _DOCKET_RE = re.compile(r"\b(FAA-\d{4}-\d{3,5}(?:R\d|_S|-W)?|\d{2,4}-[A-Z]{2}-\d{1,3}-AD)\b", re.I)
 _AD_RE = re.compile(r"\bAD\s+(?:No\.\s*)?(\d{4}-\d{2}-\d{2})\b", re.I)
+_RECORD_RE = re.compile(r"\bNPRM-\d+\b", re.I)
 _SERIAL_RE = re.compile(r"(?:serial(?:\s+(?:number|no\.?))?|S/N|SN|MSN)\s*[:#]?\s*([A-Z]{0,3}-?\d[\w/-]*)|\b(S-\d{3,})\b", re.I)
 _PART_RE = re.compile(r"(?:\bP/N|\bpart(?:\s+number)?)\b\s*[:#]?\s*([A-Z0-9-]*\d[\w-]{2,})", re.I)
 _MODELISH_RE = re.compile(r"\b[A-Za-z]{0,6}[-.]?\d[\w.+/-]*\b")
@@ -45,11 +48,23 @@ _LATEST_INTENT = re.compile(r"\b(latest|current|newest|most recent)\b", re.I)
 
 
 class AeroTrace:
-    def __init__(self, tsv_path="data/ad_nprm.tsv", pdf_dir="data/pdfs"):
+    def __init__(self, tsv_path="data/ad_nprm.tsv", pdf_dir="data/pdfs", semantic_index=None):
         docs, passages = load_tsv(tsv_path)
         pdocs, ppassages = load_pdfs(pdf_dir)
         self.docs = {d["doc_id"]: d for d in docs + pdocs}
         self.passages = passages + ppassages
+        self.semantic_index = semantic_index
+        if semantic_index is not None:
+            for chunk in semantic_index.chunks:
+                if chunk["doc_id"] not in self.docs:
+                    raise ValueError("The semantic index contains documents outside the current dataset.")
+                self.passages.append({
+                    "passage_id": chunk["chunk_id"], "doc_id": chunk["doc_id"],
+                    "paragraph": chunk["paragraph"], "section": chunk["section"], "page": chunk["page"],
+                    "text": chunk["text"], "low_confidence": False, "source_url": chunk.get("source_url"),
+                    "page_kind": chunk.get("page_kind"), "source_element_id": chunk.get("source_element_id"),
+                    "evidence_kind": chunk["evidence_kind"],
+                })
         self.pidx = {p["passage_id"]: i for i, p in enumerate(self.passages)}
         self.by_doc = {}
         for i, p in enumerate(self.passages):
@@ -57,7 +72,7 @@ class AeroTrace:
         self.rules = {d: rules.extract_rule(self.docs[d], [self.passages[i] for i in self.by_doc.get(d, [])])
                       for d in self.docs}
         self.revisions = RevisionIndex(list(self.docs.values()), self.passages)
-        self.index = HybridIndex(self.passages, self.docs)
+        self.index = HybridIndex(self.passages, self.docs, enable_vectors=False if semantic_index is not None else None)
         self.model_vocab = sorted({m for r in self.rules.values() for m in r["applies_to_models"]}, key=len, reverse=True)
         self.corpus_text = " ".join(
             [p["text"] for p in self.passages] + [d["title"] + " " + d["make_raw"] for d in self.docs.values()]).lower()
@@ -72,7 +87,7 @@ class AeroTrace:
         if m := _PART_RE.search(masked):
             cfg["part_number"] = m.group(1)
             masked = masked.replace(m.group(0), " ")
-        masked = _DOCKET_RE.sub(" ", _AD_RE.sub(" ", masked))
+        masked = _RECORD_RE.sub(" ", _DOCKET_RE.sub(" ", _AD_RE.sub(" ", masked)))
         # 1) multi-word designations that exactly match a known model ("AS 365 N3", "Falcon 7X")
         words = re.findall(r"[\w.+/-]+", masked)
         for n in (3, 2):
@@ -97,7 +112,7 @@ class AeroTrace:
         """Makers or model designations the user mentioned that never appear in the corpus."""
         q = query.lower()
         out = [mk for mk in KNOWN_MAKERS if re.search(rf"\b{mk}\b", q) and not re.search(rf"\b{mk}\b", self.corpus_text)]
-        masked = _DOCKET_RE.sub(" ", _AD_RE.sub(" ", _SERIAL_RE.sub(" ", _PART_RE.sub(" ", query))))
+        masked = _RECORD_RE.sub(" ", _DOCKET_RE.sub(" ", _AD_RE.sub(" ", _SERIAL_RE.sub(" ", _PART_RE.sub(" ", query)))))
         for tok in _MODELISH_RE.findall(masked):
             if not re.search(r"[A-Za-z]", tok) and len(tok) <= 2:
                 continue
@@ -111,7 +126,7 @@ class AeroTrace:
 
     # ---------- main entry ----------
     def ask(self, query: str, model: str | None = None, serial_number: str | None = None,
-            part_number: str | None = None, mode: str = "extractive") -> dict:
+            part_number: str | None = None, mode: str = "extractive", top_n: int = 20, top_m: int = 6) -> dict:
         t0 = time.perf_counter()
         cfg = self.parse_config(query)
         for k, v in {"model": model, "serial_number": serial_number, "part_number": part_number}.items():
@@ -119,7 +134,10 @@ class AeroTrace:
                 cfg[k] = v.strip()
         res = {"query": query, "status": None, "reason_code": None, "message": None, "configuration": cfg,
                "applicability": None, "statements": [], "removed_statements": [], "revision_status": None,
-               "candidates": [], "warnings": [], "mode": mode, "disclaimer": DISCLAIMER, "latency_ms": None}
+               "candidates": [], "warnings": [], "mode": mode, "disclaimer": DISCLAIMER, "latency_ms": None,
+               "retrieval_mode": "semantic" if self.semantic_index is not None else "bm25", "retrieval": None,
+               "llm_called": False, "llm_model": None, "supplemental_evidence": []}
+        res["coverage_check"] = None
 
         def finish(status, reason=None, message=None):
             res.update(status=status, reason_code=reason, message=message,
@@ -138,6 +156,10 @@ class AeroTrace:
         # 2. Explicit document / AD references
         allowed = None
         target_docs = set()
+        for record_id in _RECORD_RE.findall(query):
+            if record_id.upper() not in self.docs:
+                return refuse("OUT_OF_SCOPE", f"Record {record_id} is not in the corpus.")
+            target_docs.add(record_id.upper())
         for d in _DOCKET_RE.findall(query):
             hits = {i for i, doc in self.docs.items() if doc["docket"].upper() == d.upper()
                     or doc["docket_group"] == d.upper()}
@@ -172,8 +194,13 @@ class AeroTrace:
                                             "(and serial number if known).")
 
         # 5. Retrieval
-        hits = self.index.search(query, allowed, k=30)
-        if not hits or (hits[0][1] < MIN_EVIDENCE_SCORE and not target_docs):
+        if self.semantic_index is not None:
+            retrieved = self.semantic_index.search(query, top_n, top_m, allowed_doc_ids=target_docs or None)
+            res["retrieval"] = retrieved
+            hits = [(self.pidx[chunk["chunk_id"]], chunk["score"]) for chunk in retrieved["chunks"]]
+        else:
+            hits = self.index.search(query, allowed, k=30)
+        if not hits or (self.semantic_index is None and hits[0][1] < MIN_EVIDENCE_SCORE and not target_docs):
             return refuse("NO_EVIDENCE", "No passage in the corpus supports an answer. Try naming the aircraft model, "
                                          "the part or system, or the docket number.")
         doc_scores = {}
@@ -189,7 +216,9 @@ class AeroTrace:
         if not target_docs and len(ranked) > 1:
             second = ranked[1]
             different_group = self.docs[top]["docket_group"] != self.docs[second]["docket_group"]
-            if different_group and doc_scores[second] >= AMBIGUITY_RATIO * doc_scores[top]:
+            close = (doc_scores[top] - doc_scores[second] <= SEMANTIC_AMBIGUITY_MARGIN
+                     if self.semantic_index is not None else doc_scores[second] >= AMBIGUITY_RATIO * doc_scores[top])
+            if different_group and close:
                 return refuse("AMBIGUOUS_TERM", "The question matches several different directives about equally well "
                                                 "(see candidates). Please name the aircraft model or docket number.")
 
@@ -250,21 +279,33 @@ class AeroTrace:
 
         # 9. Compose from ONE document only (never blend directives)
         d = self.docs[top]
-        ignore = set(tokenize(" ".join([d["make"], d["make_raw"], d["docket"], cfg["model"] or "",
+        ignore = set(tokenize(" ".join([d["make"], d["make_raw"], d["docket"], d["doc_id"], cfg["model"] or "",
                                         cfg["serial_number"] or "", cfg["part_number"] or ""] + rule["applies_to_models"])))
-        cand = [self.passages[i] for i, _ in hits if self.passages[i]["doc_id"] == top][:5]
+        cand = [self.passages[i] for i, _ in hits if self.passages[i]["doc_id"] == top]
+        if self.semantic_index is None:
+            cand = cand[:5]
+        elif not cand:
+            return refuse("NO_EVIDENCE", "The selected revision has no passages in the retrieved top M chunks. "
+                                         "Increase M or name the revision explicitly.")
         summary_p = next((self.passages[i] for i in self.by_doc.get(top, []) if self.passages[i]["paragraph"] == "summary"), None)
-        if summary_p and summary_p not in cand:
+        if summary_p and summary_p not in cand and self.semantic_index is None:
             cand.append(summary_p)
         rule_p = self.passages[self.pidx[rule["source_ref"]]]
         rule_sentence = compose.extractive("applies model serial numbers " + " ".join(rule["applies_to_models"][:3]),
                                            [rule_p], self.index.bm25.idf, max_sentences=1)
         if res["applicability"]["result"] in ("DOES_NOT_APPLY", "APPLIES") and strict:
+            if rule_p not in cand:
+                res["supplemental_evidence"].append({"passage_id": rule_p["passage_id"], "reason": "applicability rule"})
             cand = [rule_p] + [p for p in cand if p is not rule_p]
         if res["applicability"]["result"] == "DOES_NOT_APPLY":
             drafted = rule_sentence
+            res["mode"] = "extractive"
         elif mode == "llm":
-            drafted, err = compose.llm(query, cand)
+            res["llm_called"] = True
+            res["llm_model"] = claude_config().model
+            drafted, err = compose.llm(query, cand, context={
+                "configuration": cfg, "applicability": res["applicability"], "revision_status": rev,
+            })
             if err:
                 res["warnings"].append(f"LLM unavailable ({err}); used extractive mode.")
                 res["mode"] = "extractive"
@@ -289,7 +330,9 @@ class AeroTrace:
                 "verification": chk,
                 "citations": [{"document_id": d["doc_id"], "docket": d["docket"], "revision": d["revision"],
                                "page": p["page"], "paragraph": p["paragraph"], "section": p["section"],
-                               "fr_citation": d["fr_citation"], "url": d["url"], "source_text": p["text"]}],
+                               "fr_citation": d["fr_citation"], "url": p.get("source_url") or d["url"], "source_text": p["text"],
+                               "passage_id": p["passage_id"], "page_kind": p.get("page_kind"), "page_range": d["pages"],
+                               "evidence_kind": p.get("evidence_kind"), "source_element_id": p.get("source_element_id")}],
             })
         if not res["statements"]:
             if drafted:
@@ -301,10 +344,12 @@ class AeroTrace:
         if not strict:
             # The answer must actually talk about what was asked (e.g. "torque", "flap track"), not just the aircraft.
             cov, missing = compose.coverage(query, res["statements"], self.index.bm25.idf, ignore)
+            res["coverage_check"] = {"score": round(cov, 4), "minimum": MIN_COVERAGE, "missing_terms": missing}
             if cov < MIN_COVERAGE:
                 res["statements"] = []
-                return refuse("NO_EVIDENCE", f"The closest document ({top}) does not mention: {', '.join(missing)}. "
-                                             f"No answer is given rather than a partial one.")
+                return refuse("NO_EVIDENCE", f"The source-checked answer from {top} did not sufficiently address "
+                                             f"these requested topics: {', '.join(missing)}. "
+                                             "The answer was withheld because the topic check failed.")
         return finish("ANSWERED")
 
 

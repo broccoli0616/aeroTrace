@@ -48,30 +48,37 @@ Build a search and question-answering tool over multi-page technical documents t
 
 ## 5. Data
 
-**Provided dataset:** `AD Notice of Proposed Rulemaking (AD NPRM).xlsx`, exported as TSV (431 records, 22 columns). It lists FAA proposed airworthiness directives published in the Federal Register in 2026 and earlier. Each record has a docket number, subject heading, CFR part (430 are Part 39), issue and comment-due dates, make and model, product type and subtype, a link to the Federal Register notice, a page reference, and a plain-English summary of the proposed rule.
+**Active dataset:** `data/challenge4_ad_index.xlsx`, replacing the original workbook. Run
+`python -m aerotrace.import_dataset` to export its three sheets to runtime TSV files.
+`data/dataset.json` records source/export checksums. The application uses `data/ad_nprm.tsv`,
+exported from `nprm_index` (431 records, 16 named columns). Records use the supplied stable
+`record_id` as their document and citation identifier. The new index omits comment-due dates,
+CFR-part fields, and free-form comments; those values remain unknown.
 
 **What the data can and cannot support (profiled from the file):**
 
 | Finding | Count | Implication for the PRD |
 |---------|-------|-------------------------|
-| Records with a summary | 430 of 431 | Summaries are the main text to index. They are short NPRM abstracts, not full maintenance manuals. |
-| Records with a model list | 86 of 431 (345 empty) | Most rows lack model data. Applicability for these must come from the summary text or be marked MISSING_CONFIG. |
-| Summaries mentioning serial numbers | 19 | Serial-range rules (the S-1000 to S-1500 example) can only be tested on a small subset. |
-| Summaries mentioning supersession | 108 | Supersession links can be extracted from text for many records. |
-| Docket numbers reused across rows | 323 unique docket numbers for 431 rows | Docket is not a unique key. Use docket plus page number or row ID. |
-| Docket suffix "R1" (corrections) | 3 records, with OFR correction notes | Revision logic must handle "R1" dockets as corrected republications. |
-| Comment-due date already passed (before 31 Oct 2026) | 394 records | The tool must show whether a comment period is still open, since a user may act on it. |
-| Issue date before 2020 | 230 records | Old records must be flagged as potentially superseded or stale. |
-| Status field | "Current" for all 431 | Status cannot be used to separate active from withdrawn rules. |
-| Make field naming | Variants such as "Boeing" and "The Boeing Company", "Airbus" and "Airbus SAS" | Normalise manufacturer names before filtering. |
-| Withdrawn notices in data | At least 1 (FAA-2024-1884 withdrawn) | The system must read the comments field and mark withdrawn notices. |
-| Empty reference fields | AC Reference, AIR Policy Reference, Additional Reference all empty | Cannot be used for citation; rely on the Federal Register link and page number. |
+| Records with a summary | 430 of 431 | Summaries are short NPRM abstracts, not full maintenance manuals. |
+| Records with a model list | 86 of 431 | Missing models must be recovered from evidence or left unknown. |
+| `federal_register_link` (column O) | 177 embedded-text records, 229 URL-only records, 25 empty | Handle both pasted regulatory text and downloadable notice links. |
+| `mentions_serial_numbers=yes` | 16 supplied annotations | An annotation does not replace evaluation of the exact applicability rule. |
+| `supersedes_ad` populated | 62 supplied annotations | Preserve these as extracted dataset metadata and verify against source text. |
+| Reused dockets | 323 unique dockets for 431 records | Use stable `record_id`, not docket alone, as the document key. |
+| `revision_chains` | 207 entries across 99 repeated dockets | Join by `record_id`; retain supplied version/status metadata alongside computed revision checks. |
+| Withdrawal notices | 123 detected from the source text | Flag withdrawn proposals. |
+| OFR corrections | 4 docket suffixes `R1` | Handle corrected republications. |
+| Missing comment deadlines | Not supplied in this workbook | Do not infer whether the comment period is open. |
+| `data_notes` | 6 informational records | Preserve as dataset documentation, not regulatory evidence or execution instructions. |
 
 **Important scope note:** this dataset contains proposed rules (NPRMs), not final airworthiness directives, and not maintenance manuals or accident reports. The tool must state this on every answer: a proposed rule is not a legally binding instruction. Where the challenge asks about maintenance manuals, the team will need a second corpus.
 
 **Source for supplementary demo (if needed):** public final airworthiness directives from the FAA AD database. Record the exact document ID, revision, and download date for each file used.
 
-**Corpus target:** at least 1,000 pages. The NPRM summaries alone do not reach this size, so either add the full Federal Register notices (the link column provides them) or add final ADs to reach the page target.
+**Corpus target:** at least 1,000 indexed pages. The initial index has 2,320 passages from
+summaries, metadata, and embedded text. Referenced page ranges do not prove all pages were
+ingested. Download full notices using `python -m aerotrace.prepare --fetch` or add PDFs,
+and report the actual size of the indexed corpus.
 
 **Metadata stored per page and per paragraph:** document ID, title, revision, revision date, page number, section number, paragraph ID, applicability block (if found), and superseded-by link (if any).
 
