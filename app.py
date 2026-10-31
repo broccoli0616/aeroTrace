@@ -1,8 +1,10 @@
 """AeroTrace demo UI. Run: streamlit run app.py"""
+import hmac
 import html
 import json
 import os
 import re
+import time
 
 import streamlit as st
 
@@ -13,7 +15,42 @@ from aerotrace.uploads import REVISION_CHOICES, UploadError, file_hash, parse
 st.set_page_config(page_title="AeroTrace", page_icon="✈️", layout="wide")
 
 
-@st.cache_resource
+def load_secrets():
+    """On Streamlit Community Cloud, settings live in the app's Secrets (TOML). Copy the top-level ones into the
+    environment so the engine reads them exactly like .env locally. Variables already set win."""
+    try:
+        for k, v in st.secrets.items():
+            if isinstance(v, (str, int, float, bool)):
+                os.environ.setdefault(k, str(v))
+    except Exception:  # no secrets.toml: running locally with .env / exported variables
+        pass
+
+
+def check_password() -> bool:
+    """Gate the app behind APP_PASSWORD when it is set (always set it for a public deployment: anyone with the
+    link could otherwise spend the API credit and upload files). Unset locally = no password screen."""
+    expected = os.getenv("APP_PASSWORD", "")
+    if not expected or st.session_state.get("authenticated"):
+        return True
+    st.title("✈️ AeroTrace")
+    with st.form("login"):
+        password = st.text_input("Password", type="password")
+        submitted = st.form_submit_button("Enter", type="primary")
+    if submitted:
+        if hmac.compare_digest(password.encode(), expected.encode()):
+            st.session_state["authenticated"] = True
+            st.rerun()
+        time.sleep(1)  # slow down guessing
+        st.error("Wrong password.")
+    return False
+
+
+load_secrets()
+if not check_password():
+    st.stop()
+
+
+@st.cache_resource(show_spinner="Loading documents and building the search index (first visit only)...")
 def engine():
     return get_engine()
 

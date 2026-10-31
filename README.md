@@ -97,6 +97,18 @@ Honest caveats:
 - `python eval/bench_latency.py 20` replicates the corpus 20× (~44k passages): median 7 ms, max 26 ms.
 - Model matching is conservative: "A330" will not be assumed to cover "A330-243" unless the rule lists the A330 series.
 
+## Deploy (Streamlit Community Cloud)
+
+1. Sign in at [share.streamlit.io](https://share.streamlit.io) with GitHub (grant access to this repo if it is private).
+2. **Create app** → repository `broccoli0616/aeroTrace`, branch `main`, main file `app.py`.
+   Under **Advanced settings** pick Python 3.12 and paste the secrets from `.streamlit/secrets.toml.example`
+   with real values. **Always set `APP_PASSWORD`**: without it anyone with the link can use the API keys.
+3. **Deploy.** The first visit after each start builds the index (and, with embeddings on, embeds all passages:
+   about 30 s and a fraction of a cent).
+
+Secrets are copied into environment variables at startup, so the app reads them exactly like `.env` locally.
+Uploaded documents are stored on the app's temporary disk and are **lost when the app restarts or goes to sleep**.
+
 ## Repo layout
 
 ```
